@@ -4,9 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MinInjection
-{
-    public class Class1
-    {
+namespace MinInjection {
+    public abstract class Policy : MarshalByRefObject {
     }
 }

@@ -5,6 +5,8 @@ VisualStudioVersion = 15.0.26430.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinInjection", "MinInjection\MinInjection.csproj", "{97BB06FF-310D-4E80-9FF4-6A8FEF7BAB33}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinInjectionCtrl", "MinInjectionCtrl\MinInjectionCtrl.csproj", "{3C2CFC88-6B00-4F47-A7A2-DDD23109699F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{97BB06FF-310D-4E80-9FF4-6A8FEF7BAB33}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{97BB06FF-310D-4E80-9FF4-6A8FEF7BAB33}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{97BB06FF-310D-4E80-9FF4-6A8FEF7BAB33}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3C2CFC88-6B00-4F47-A7A2-DDD23109699F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3C2CFC88-6B00-4F47-A7A2-DDD23109699F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3C2CFC88-6B00-4F47-A7A2-DDD23109699F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3C2CFC88-6B00-4F47-A7A2-DDD23109699F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
