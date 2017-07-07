@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -12,7 +14,6 @@ namespace MinInjection {
         ConcurrentQueue<string> messageQueue = new ConcurrentQueue<string>();
         List<FileSystemPolicy> fileSystemPolicies;
         List<EasyHook.LocalHook> hooks = new List<EasyHook.LocalHook>();
-        uint lasterror;
 
         public MinInjectionEntryPoint(EasyHook.RemoteHooking.IContext context, string channelName) {
             server = EasyHook.RemoteHooking.IpcConnectClient<ServerInterface>(channelName);
@@ -33,9 +34,6 @@ namespace MinInjection {
                 EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateProcessW"),
                 new CreateProcess_Delegate(CreateProcess_Hook));
             addHook(
-                EasyHook.LocalHook.GetProcAddress("kernel32.dll", "GetLastError"),
-                new GetLastError_Delegate(GetLastError_Hook));
-            addHook(
                 EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateFileW"),
                 new CreateFile_Delegate(CreateFile_Hook));
             addHook(
@@ -54,9 +52,10 @@ namespace MinInjection {
                 EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateDirectoryW"),
                 new CreateDirectory_Delegate(CreateDirectory_Hook));
 
-            EasyHook.RemoteHooking.WakeUpProcess();
-
             var pid = EasyHook.RemoteHooking.GetCurrentProcessId();
+
+            var process = Process.GetCurrentProcess();
+            process.Resume();
 
             try {
                 server.Start(pid);
@@ -73,7 +72,7 @@ namespace MinInjection {
                 }
             } catch (Exception e) {
                 try {
-                    server.Log(pid, e.Message);
+                    server.Log(pid, e.StackTrace);
                 } catch { }
             }
 
@@ -85,24 +84,20 @@ namespace MinInjection {
             messageQueue.Enqueue(content);
         }
 
-        #region GetLastError Hook
-
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        delegate uint GetLastError_Delegate();
-
-        [DllImport("kernel32.dll", CallingConvention = CallingConvention.StdCall)]
-        static extern uint GetLastError();
-
-        uint GetLastError_Hook() {
-            if (lasterror != 0) {
-                var ret = lasterror;
-                lasterror = 0;
-                return ret;
-            }
-            return GetLastError();
+        private void doLog(Exception content) {
+            messageQueue.Enqueue(string.Format("Exception: {0}", content.StackTrace));
         }
 
-        #endregion
+        private string getPath(string src) {
+            if (src.StartsWith(@"\\?\")) {
+                return src.Substring(4);
+            } else
+                try {
+                    return Path.GetFullPath(src);
+                } catch {
+                    return src;
+                }
+        }
 
         #region CreateProcess Hook
 
@@ -197,17 +192,19 @@ namespace MinInjection {
                 lpProcessAttributes,
                 lpThreadAttributes,
                 bInheritHandles,
-                dwCreationFlags,
+                dwCreationFlags | CreateProcessFlags.CREATE_SUSPENDED,
                 lpEnvironment,
                 lpCurrentDirectory,
                 lpStartupInfo,
                 out lpProcessInformation);
             if (ret) {
                 var pid = lpProcessInformation.dwProcessId;
-                server.DoHook(pid);
                 try {
+                    server.DoHook(pid);
                     doLog(string.Format("CREATEPROCESS|{0}|{1}|{2}", lpApplicationName, lpCommandLine, pid));
-                } catch { }
+                } catch (Exception e) {
+                    doLog(e);
+                }
             }
             return ret;
         }
@@ -227,16 +224,18 @@ namespace MinInjection {
 
         bool PathFileExists_Hook(string path) {
             try {
+                var real = getPath(path);
                 if (fileSystemPolicies.Find(policy => {
                     if (policy.action == "pathfileexists") {
-                        return policy.fileNameRegex.IsMatch(path);
+                        return policy.fileNameRegex.IsMatch(real);
                     }
                     return false;
                 }) != null) {
-                    doLog(string.Format("fs|pathfileexists|{0}", path));
+                    doLog(string.Format("fs|pathfileexists|{0}", real));
                     return true;
                 }
-            } catch {
+            } catch (Exception e) {
+                doLog(e.Source);
             }
             return PathFileExistsW(path);
         }
@@ -266,12 +265,13 @@ namespace MinInjection {
             IntPtr lpReOpenBuff,
             uint uStyle) {
             try {
-                if (fileSystemPolicies.Find(policy => policy.action == "preventcreate" && policy.fileNameRegex.IsMatch(lpFileName)) != null) {
-                    lasterror = 1;
-                    doLog(string.Format("fs|preventcreate|{0}", lpFileName));
+                var real = getPath(lpFileName);
+                if (fileSystemPolicies.Find(policy => policy.action == "preventcreate" && policy.fileNameRegex.IsMatch(real)) != null) {
+                    doLog(string.Format("fs|preventcreate|{0}", real));
                     return new IntPtr(-1);
                 }
-            } catch {
+            } catch (Exception e) {
+                doLog(e.Source);
             }
             return OpenFile(lpFileName, lpReOpenBuff, uStyle);
         }
@@ -313,24 +313,13 @@ namespace MinInjection {
             UInt32 flagsAndAttributes,
             IntPtr templateFile) {
             try {
-                if (fileSystemPolicies.Find(policy => policy.action == "preventcreate" && policy.fileNameRegex.IsMatch(filename)) != null) {
-                    switch (creationDisposition) {
-                    case 1:
-                        lasterror = 80;
-                        break;
-                    case 2:
-                    case 4:
-                        lasterror = 183;
-                        break;
-                    case 3:
-                    case 5:
-                        lasterror = 2;
-                        break;
-                    }
-                    doLog(string.Format("fs|preventcreate|{0}", filename));
+                var real = getPath(filename);
+                if (fileSystemPolicies.Find(policy => policy.action == "preventcreate" && policy.fileNameRegex.IsMatch(real)) != null) {
+                    doLog(string.Format("fs|preventcreate|{0}", real));
                     return new IntPtr(-1);
                 }
-            } catch {
+            } catch (Exception e) {
+                doLog(e.Source);
             }
             return CreateFileW(
                 filename,
@@ -369,16 +358,18 @@ namespace MinInjection {
             IntPtr lpSecurityAttributes,
             IntPtr hTransaction) {
             try {
+                var real = getPath(lpNewDirectory);
                 if (fileSystemPolicies.Find(policy => {
                     if (policy.action == "preventcreate") {
-                        return policy.fileNameRegex.IsMatch(lpNewDirectory);
+                        return policy.fileNameRegex.IsMatch(real);
                     }
                     return false;
                 }) != null) {
-                    doLog(string.Format("fs|preventcreate|{0}", lpNewDirectory));
+                    doLog(string.Format("fs|preventcreate|{0}", real));
                     return false;
                 }
-            } catch {
+            } catch (Exception e) {
+                doLog(e.Source);
             }
             return CreateDirectoryTransactedW(lpTemplateDirectory, lpNewDirectory, lpSecurityAttributes, hTransaction);
         }
@@ -405,16 +396,18 @@ namespace MinInjection {
             string lpNewDirectory,
             IntPtr lpSecurityAttributes) {
             try {
+                var real = getPath(lpNewDirectory);
                 if (fileSystemPolicies.Find(policy => {
                     if (policy.action == "preventcreate") {
-                        return policy.fileNameRegex.IsMatch(lpNewDirectory);
+                        return policy.fileNameRegex.IsMatch(real);
                     }
                     return false;
                 }) != null) {
-                    doLog(string.Format("fs|preventcreate|{0}", lpNewDirectory));
+                    doLog(string.Format("fs|preventcreate|{0}", real));
                     return false;
                 }
-            } catch {
+            } catch (Exception e) {
+                doLog(e.Source);
             }
             return CreateDirectoryExW(lpTemplateDirectory, lpNewDirectory, lpSecurityAttributes);
         }
@@ -438,16 +431,18 @@ namespace MinInjection {
             string lpNewDirectory,
             IntPtr lpSecurityAttributes) {
             try {
+                var real = getPath(lpNewDirectory);
                 if (fileSystemPolicies.Find(policy => {
                     if (policy.action == "preventcreate") {
-                        return policy.fileNameRegex.IsMatch(lpNewDirectory);
+                        return policy.fileNameRegex.IsMatch(real);
                     }
                     return false;
                 }) != null) {
-                    doLog(string.Format("fs|preventcreate|{0}", lpNewDirectory));
+                    doLog(string.Format("fs|preventcreate|{0}", real));
                     return false;
                 }
-            } catch {
+            } catch (Exception e) {
+                doLog(e.Source);
             }
             return CreateDirectoryW(lpNewDirectory, lpSecurityAttributes);
         }
