@@ -4,9 +4,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
+using static MinInjection.ProcessExtension;
 
 namespace MinInjectionCtrl {
     class Program {
@@ -23,8 +26,10 @@ namespace MinInjectionCtrl {
                 return;
             }
             string restArg = "";
-            if (args.Length > 2)
-                restArg = string.Join(" ", args.Skip(2).ToArray());
+            restArg = string.Join(" ", args.Skip(1).ToArray());
+            if (Environment.GetEnvironmentVariable("DEBUG_MININJECTION") != null) {
+                AllocConsole();
+            }
 
             int targetPID;
             string channelName = null;
@@ -39,15 +44,18 @@ namespace MinInjectionCtrl {
                             where result.Length == 3 && result[0] == "fs"
                             select new MinInjection.FileSystemPolicy(result[1], new Regex(result[2]))).Cast<MinInjection.Policy>().ToList();
             string injectionLibrary = Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), "MinInjection.dll");
+
+            var doInject = new MinInjection.ServerInterface.DoHookFn(pid => EasyHook.RemoteHooking.Inject(
+                pid,
+                EasyHook.InjectionOptions.DoNotRequireStrongName,
+                injectionLibrary,
+                injectionLibrary,
+                channelName
+            ));
+
             var service = new MinInjection.ServerInterface(
                 policies,
-                pid => EasyHook.RemoteHooking.Inject(
-                    pid,
-                    EasyHook.InjectionOptions.DoNotRequireStrongName,
-                    injectionLibrary,
-                    injectionLibrary,
-                    channelName
-                ),
+                doInject,
                 pid => {
                     MinInjection.ServerInterface.printPrefix(pid);
                     Console.ForegroundColor = ConsoleColor.Green;
@@ -67,18 +75,23 @@ namespace MinInjectionCtrl {
             );
 
             EasyHook.RemoteHooking.IpcCreateServer(ref channelName, System.Runtime.Remoting.WellKnownObjectMode.Singleton, service);
-            EasyHook.RemoteHooking.CreateAndInject(
-                    targetExe,          // executable to run
-                    restArg,            // command line arguments for target
-                    0x00000010,         // additional process creation flags to pass to CreateProcess
-                    EasyHook.InjectionOptions.DoNotRequireStrongName, // allow injectionLibrary to be unsigned
-                    injectionLibrary,   // 32-bit library to inject (if target is 32-bit)
-                    injectionLibrary,   // 64-bit library to inject (if target is 64-bit)
-                    out targetPID,      // retrieve the newly created process ID
-                    channelName         // the parameters to pass into injected library
-                );
-            while (pids.IsEmpty) System.Threading.Thread.Sleep(15);
-            while (!pids.IsEmpty) System.Threading.Thread.Sleep(10);
+            STARTUPINFO si = new STARTUPINFO();
+            PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
+            CreateProcess(targetExe, restArg, IntPtr.Zero, IntPtr.Zero, false, 0x00000016, IntPtr.Zero, null, ref si, out pi);
+            targetPID = pi.dwProcessId;
+            if (targetPID == 0) {
+                return;
+            }
+            if (!DebugActiveProcessStop(targetPID)) Thread.Sleep(10);
+            doInject(targetPID);
+            while (pids.IsEmpty) Thread.Sleep(15);
+            while (!pids.IsEmpty) Thread.Sleep(10);
         }
+
+        [DllImport("Kernel32.dll", SetLastError = true)]
+        static extern bool DebugActiveProcessStop(int dwProcessId);
+
+        [DllImport("kernel32.dll")]
+        static extern bool AllocConsole();
     }
 }

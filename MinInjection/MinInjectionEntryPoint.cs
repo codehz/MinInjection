@@ -30,34 +30,37 @@ namespace MinInjection {
         }
 
         public void Run(EasyHook.RemoteHooking.IContext context, string channelName) {
-            addHook(
-                EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateProcessW"),
-                new CreateProcess_Delegate(CreateProcess_Hook));
-            addHook(
-                EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateFileW"),
-                new CreateFile_Delegate(CreateFile_Hook));
-            addHook(
-                EasyHook.LocalHook.GetProcAddress("kernel32.dll", "OpenFile"),
-                new OpenFile_Delegate(OpenFile_Hook));
-            addHook(
-                EasyHook.LocalHook.GetProcAddress("Shlwapi.dll", "PathFileExistsW"),
-                new PathFileExists_Delegate(PathFileExists_Hook));
-            addHook(
-                EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateDirectoryTransactedW"),
-                new CreateDirectoryTransacted_Delegate(CreateDirectoryTransacted_Hook));
-            addHook(
-                EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateDirectoryExW"),
-                new CreateDirectoryEx_Delegate(CreateDirectoryEx_Hook));
-            addHook(
-                EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateDirectoryW"),
-                new CreateDirectory_Delegate(CreateDirectory_Hook));
-
-            var pid = EasyHook.RemoteHooking.GetCurrentProcessId();
-
-            var process = Process.GetCurrentProcess();
-            process.Resume();
-
             try {
+                addHook(
+                    EasyHook.LocalHook.GetProcAddress("kernel32.dll", "IsDebuggerPresent"),
+                    new IsDebuggerPresent_Delegate(IsDebuggerPresent_Hook));
+                addHook(
+                    EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateProcessW"),
+                    new CreateProcess_Delegate(CreateProcess_Hook));
+                addHook(
+                    EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateFileW"),
+                    new CreateFile_Delegate(CreateFile_Hook));
+                addHook(
+                    EasyHook.LocalHook.GetProcAddress("kernel32.dll", "OpenFile"),
+                    new OpenFile_Delegate(OpenFile_Hook));
+                addHook(
+                    EasyHook.LocalHook.GetProcAddress("Shlwapi.dll", "PathFileExistsW"),
+                    new PathFileExists_Delegate(PathFileExists_Hook));
+                addHook(
+                    EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateDirectoryTransactedW"),
+                    new CreateDirectoryTransacted_Delegate(CreateDirectoryTransacted_Hook));
+                addHook(
+                    EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateDirectoryExW"),
+                    new CreateDirectoryEx_Delegate(CreateDirectoryEx_Hook));
+                addHook(
+                    EasyHook.LocalHook.GetProcAddress("kernel32.dll", "CreateDirectoryW"),
+                    new CreateDirectory_Delegate(CreateDirectory_Hook));
+
+                var pid = EasyHook.RemoteHooking.GetCurrentProcessId();
+
+                var process = Process.GetCurrentProcess();
+                process.Resume();
+
                 server.Start(pid);
                 while (true) {
                     System.Threading.Thread.Sleep(500);
@@ -72,7 +75,7 @@ namespace MinInjection {
                 }
             } catch (Exception e) {
                 try {
-                    server.Log(pid, e.StackTrace);
+                    server.Log(EasyHook.RemoteHooking.GetCurrentProcessId(), e.StackTrace);
                 } catch { }
             }
 
@@ -98,6 +101,23 @@ namespace MinInjection {
                     return src;
                 }
         }
+
+        #region IsDebuggerPresent Hook
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, CallingConvention = CallingConvention.StdCall)]
+        static extern bool IsDebuggerPresent();
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall,
+                    CharSet = CharSet.Unicode,
+                    SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        delegate bool IsDebuggerPresent_Delegate();
+
+        bool IsDebuggerPresent_Hook() {
+            return false;
+        }
+
+        #endregion
 
         #region CreateProcess Hook
 
